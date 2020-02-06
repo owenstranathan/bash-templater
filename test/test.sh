@@ -37,6 +37,25 @@ function test_templates_dir(){
     )
 }
 
+function test_recursive(){
+    (
+        cd "$PACKAGE_DIR/examples/templates-dir"
+        diff -u <(bash ../../templater.sh templates -f variables.txt -r) recursive_render.yaml
+        return $?
+    )
+}
+
+function test_output_recursive(){
+    (
+        cd "$PACKAGE_DIR/examples/templates-dir"
+        bash ../../templater.sh templates -f variables.txt -r -q -o ./temp
+        diff -r temp/ render/
+        ret="$?"
+        rm -rf ./temp
+        return $ret
+    )
+}
+
 function test_print_only(){
     (
         cd "$PACKAGE_DIR/examples/simple"

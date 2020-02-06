@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    name: templater-example-svc
+    namespace: templates
+  name: templater-example-svc
+spec:
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: templater-example
+  type: LoadBalancer

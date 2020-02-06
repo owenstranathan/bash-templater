@@ -40,7 +40,7 @@ case "$OSTYPE" in
         ;;
 esac
 
-usage="${PROGNAME} [-h] [-d] [-f] [-s] -- 
+usage="${PROGNAME} [-h] [-d] [-f] [-s] [-o] [-r] [-q] --
 
 where:
     -h, --help
@@ -53,16 +53,23 @@ where:
         Don't print warning messages (for example if no variables are found)
     -d, --delimiter
         Specify a delimiter to separate output from multiple files (defaults to '\n---\n')
+    -o --output
+        Specify to write the output to files in the given directory instead of stdout
+    -r --recursive
+        Searches recursively for files in the template directory
+    -q --quiet
+        Don't output anything but errors (for use with -o)
 
 examples:
-    VAR1=Something VAR2=1.2.3 ${PROGNAME} test.txt 
+    VAR1=Something VAR2=1.2.3 ${PROGNAME} test.txt
     ${PROGNAME} test.txt -f my-variables.txt
     ${PROGNAME} test.txt -f my-variables.txt > new-test.txt"
 
 if [ $# -eq 0 ]; then
   echo "$usage"
-  exit 1    
+  exit 1
 fi
+
 
 if [[ ! -f "${1}" ]] && [[ ! -d "${1}" ]]; then
     echo "You need to specify a template file or directory" >&2
@@ -91,7 +98,7 @@ function errcho() {
 
 function parse_args() {
     template_path="${1}"
-    delimiter="\n---\n" 
+    delimiter="\n---\n"
     print_only="false"
     silent="false"
 
@@ -102,7 +109,7 @@ function parse_args() {
                 -h|--help)
                     echo "$usage"
                     exit 0
-                    ;;        
+                    ;;
                 -p|--print)
                     print_only="true"
                     ;;
@@ -113,8 +120,17 @@ function parse_args() {
                     silent="true"
                     ;;
                 -d|--delimiter)
-                   delimiter="$2"
-                   ;;
+                    delimiter="$2"
+                    ;;
+                -o|--output)
+                    output="$2"
+                    ;;
+                -r|--recursive)
+                    recursive="true"
+                    ;;
+                -q|--quiet)
+                    quiet="true"
+                    ;;
                 --)
                     break
                     ;;
@@ -158,7 +174,7 @@ function var_value() {
 
 function perl_match() {
     perl - "$TEMPLATE_CONTENT" $1 <<'EOF'
-    my $string = shift; 
+    my $string = shift;
     my $index = shift;
     my $regex = qr/\s*{%\s*if\s*(.*?(?=%}))%}(.*?(?={%))(\s*{%\s*else\s*%})?(.*?(?={%))\s*{%\s*endif\s*%}/sp;
     my @matches = ( $string =~ /$regex/ );
@@ -259,9 +275,7 @@ function render(){
         replaces+=("-e")
         replaces+=("s/{{[[:space:]]*${var}[[:space:]]*}}/${value}/g")
     done
-    
     TEMPLATE_CONTENT="$(echo "$TEMPLATE_CONTENT" | sed "${replaces[@]}")"
-
 }
 
 function main() {
@@ -274,25 +288,45 @@ function main() {
     fi
     replace_ifs > /dev/null 2>&1
     render
-    echo "$TEMPLATE_CONTENT"
-    # exit 1
-
+    if [[ -z "$quiet" ]]; then
+        echo "$TEMPLATE_CONTENT"
+    fi
+    if [[ ! -z "$output" ]]; then
+        mkdir -p "$(dirname "$output/$template_path")"
+        echo "$TEMPLATE_CONTENT" >> "$output/$template_path"
+    fi
 }
+
+
+function template_dir() {
+        shopt -s globstar nullglob 2>/dev/null
+        templates=( "$1/"* )
+        len=${#templates[@]}
+        len=$((len-1))
+        needs_delim="false"
+        for i in $(seq 0 $len); do
+            if [[ -d "${templates[i]}" ]] && [[ -z "$recursive" ]]; then
+                needs_delim="false"
+                continue;
+            fi
+            if [[ "$needs_delim" == "true" ]] && [[ -z "$output" ]]; then
+                echo -e "$delimiter"
+            fi
+            if [[ -f "${templates[i]}" ]]; then
+                main "${templates[i]}"
+            elif [[ -d "${templates[i]}" ]] && [[ ! -z "$recursive" ]] && [[ "$recursive" == "true" ]]; then
+                template_dir "${templates[i]}"
+            fi
+            if [ $i -lt $len ] && [ -z "$output" ]; then
+                needs_delim="true";
+            fi
+        done
+}
+
 
 parse_args "$@"
 if [[ -f "$template_path" ]]; then
-  main "$template_path"
+    main "$template_path"
 elif [[ -d "$template_path" ]]; then
-  {
-    shopt -s globstar nullglob
-    templates=( "$template_path/"* )
-    len=${#templates[@]}
-    len=$((len-1))
-    for i in $(seq 0 $len); do
-        main "${templates[i]}"
-        if [ $i -lt $len ]; then
-        echo -e "$delimiter"
-        fi
-    done
-  }
+    template_dir "$template_path"
 fi
